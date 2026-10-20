@@ -114,6 +114,21 @@ export function runMigrations(targetDb) {
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_observations_fingerprint ON payment_observations (fingerprint_hash);"); } catch {}
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_observations_attributed_payment ON payment_observations (attributed_payment_id);"); } catch {}
 
+  // YachtCrew Pay extension (multicurrency crew payroll). Idempotent file.
+  try {
+    const ycPath = path.join(__dirname, 'yachtcrew-schema.sql');
+    const ycSql = fs.readFileSync(ycPath, 'utf8');
+    db.exec(ycSql);
+  } catch (err) { console.error('[migrate] yachtcrew schema failed:', err.message); }
+  try { db.exec("ALTER TABLE payment_sessions ADD COLUMN source_amount_minor INTEGER;"); } catch {}
+  try { db.exec("ALTER TABLE payment_sessions ADD COLUMN source_currency TEXT DEFAULT 'EUR';"); } catch {}
+  try { db.exec("ALTER TABLE payment_sessions ADD COLUMN fx_quote_id TEXT;"); } catch {}
+  try { db.exec("ALTER TABLE payment_sessions ADD COLUMN fx_rate TEXT;"); } catch {}
+  try { db.exec("ALTER TABLE payment_sessions ADD COLUMN dest_bank_country TEXT;"); } catch {}
+  try { db.exec("ALTER TABLE payment_sessions ADD COLUMN wise_transfer_id TEXT;"); } catch {}
+  try { db.exec("ALTER TABLE payment_sessions ADD COLUMN failure_code TEXT;"); } catch {}
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_payment_sessions_wise ON payment_sessions (wise_transfer_id);"); } catch {}
+
   // Seed default merchant if empty
   const merchantRepo = new MerchantRepository(db);
   const existing = merchantRepo.findAll();

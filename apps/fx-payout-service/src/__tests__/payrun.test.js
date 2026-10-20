@@ -1,0 +1,51 @@
+import { test, describe, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { Database, runMigrations, MerchantRepository, YachtRepository, CrewRepository, PayRunRepository, PayLineRepository, PaymentSessionRepository, AuditLogRepository } from '@youpi/db';
+import { PayrunService } from '../payrun.service.js';
+
+describe('yachtcrew payrun scaffold', () => {
+  let db, org, yacht, svc, repos;
+  beforeEach(() => {
+    db = new Database({ inMemory: true });
+    db.exec(`CREATE TABLE IF NOT EXISTS merchants (id TEXT PRIMARY KEY, business_name TEXT, slug TEXT UNIQUE, contact_email TEXT, contact_phone TEXT, webhook_url TEXT, webhook_secret TEXT, branding TEXT, created_at TEXT, updated_at TEXT);`);
+    const { defaultMerchant } = runMigrations(db);
+    org = defaultMerchant;
+    repos = {
+      yachtRepo: new YachtRepository(db), crewRepo: new CrewRepository(db),
+      payRunRepo: new PayRunRepository(db), payLineRepo: new PayLineRepository(db),
+      sessionRepo: new PaymentSessionRepository(db), auditRepo: new AuditLogRepository(db)
+    };
+    svc = new PayrunService({ db, ...repos });
+    yacht = repos.yachtRepo.create({ orgId: org.id, name: 'M/Y Aurora', flag: 'MT', ownerCode: 'OWNER-42' });
+  });
+  afterEach(() => db.close());
+
+  test('migration creates yachts/crew/pay_runs/pay_lines + session FX columns', () => {
+    const t = db.query(`SELECT name FROM sqlite_master WHERE type='table' AND name IN ('yachts','crew','pay_runs','pay_lines')`);
+    assert.equal(t.length, 4);
+    const cols = db.query(`PRAGMA table_info(payment_sessions)`).map(c => c.name);
+    for (const c of ['source_amount_minor', 'fx_quote_id', 'wise_transfer_id']) assert.ok(cols.includes(c), `missing ${c}`);
+  });
+
+  test('build lines + lock mock FX quotes (EUR->PHP, EUR->ZAR)', () => {
+    const a = repos.crewRepo.create({ orgId: org.id, yachtId: yacht.id, fullName: 'Juan Dela Cruz', rank: 'Deckhand', nationality: 'PH', homeCurrency: 'PHP', bankCountry: 'PH', ibanOrAccount: 'PH123', dayRateMinor: 12000, phone: '9000000001' });
+    const b = repos.crewRepo.create({ orgId: org.id, yachtId: yacht.id, fullName: 'Thabo Mbeki', rank: 'Engineer', nationality: 'ZA', homeCurrency: 'ZAR', bankCountry: 'ZA', ibanOrAccount: 'ZA456', dayRateMinor: 20000, phone: '9000000002' });
+    const run = repos.payRunRepo.create({ orgId: org.id, yachtId: yacht.id, periodStart: '2026-10-01', periodEnd: '2026-10-31', sourceCurrency: 'EUR' });
+
+    const lines = svc.buildLines(run.id, [{ crewId: a.id, daysWorked: '30' }, { crewId: b.id, daysWorked: '15.5' }]);
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0].grossMinor, 360000); // 12000*30
+    assert.equal(lines[1].grossMinor, 310000); // 20000*15.5
+
+    const quoted = svc.lockQuotes(run.id);
+    assert.equal(quoted.status, 'QUOTED');
+    const after = repos.payLineRepo.findByRun(run.id);
+    const php = after.find(l => l.destCurrency === 'PHP');
+    const zar = after.find(l => l.destCurrency === 'ZAR');
+    assert.equal(php.fxRate, '58.42');
+    assert.equal(zar.fxRate, '19.85');
+    // 360000 * 58.42 = 21031200 ; 310000 * 19.85 = 6153500
+    assert.equal(php.destAmountMinor, 21031200);
+    assert.equal(zar.destAmountMinor, 6153500);
+  });
+});

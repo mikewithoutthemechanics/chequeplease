@@ -1,0 +1,16 @@
+{
+  "name": "fx-payout-service",
+  "version": "0.1.0",
+  "description": "Multicurrency crew payroll payout service (Wise-ready, mocked FX for MVP)",
+  "type": "module",
+  "main": "./src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test src/__tests__/**/*.test.js"
+  },
+  "dependencies": {
+    "@youpi/common": "*",
+    "@youpi/core": "*",
+    "@youpi/db": "*"
+  }
+}
