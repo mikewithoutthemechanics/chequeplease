@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>YachtCrew Ops Dashboard</title>
+<style>body{font-family:Arial,sans-serif;background:#f1f5f9;margin:0;color:#0f172a}
+header{background:#0f172a;color:#fff;padding:12px 20px;display:flex;justify-content:space-between;align-items:center}
+main{padding:20px;max-width:1100px;margin:auto}.card{background:#fff;padding:16px;border-radius:10px;margin-bottom:16px}
+table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e2e8f0;padding:8px;text-align:left;font-size:14px}
+.badge{padding:2px 8px;border-radius:10px;font-size:12px}.DRAFT{background:#e2e8f0}.QUOTED{background:#fef3c7}.EXECUTING{background:#dbeafe}.COMPLETE{background:#dcfce7}.PAID{background:#dcfce7}.FAILED,.COMPLETE_WITH_ERRORS{background:#fee2e2}
+button{padding:8px 12px;background:#2563eb;color:#fff;border:0;border-radius:6px;cursor:pointer;margin-right:6px}
+input,select{padding:8px;border:1px solid #cbd5e1;border-radius:6px;margin:4px}.row{display:flex;gap:8px;flex-wrap:wrap}</style></head>
+<body>
+<header><b>YachtCrew Ops</b><span id="mode"></span></header>
+<main>
+<div class="card"><h3>Org overview</h3>
+<div class="row"><input id="orgId" placeholder="Org ID (merchant id)" size="40"><button onclick="load()">Load</button></div>
+<div id="ov"></div></div>
+<div class="card"><h3>Create invite link</h3>
+<div class="row"><input id="invYacht" placeholder="Yacht ID (optional)" size="36"><input id="invContact" placeholder="Phone/email (optional)"><button onclick="mkInvite()">Create invite</button></div>
+<div id="invOut"></div></div>
+<div class="card"><h3>New pay run</h3>
+<div class="row"><input id="prYacht" placeholder="Yacht ID"><input id="prStart" value="2026-10-01"><input id="prEnd" value="2026-10-31"><button onclick="mkRun()">Create</button></div>
+<div id="runOut"></div></div>
+<div class="card"><h3>Pay runs</h3><div id="runs"></div></div>
+<div class="card"><h3>Crew (first 50)</h3><div id="crew"></div></div>
+</main>
+<script>
+let ORG='';
+async function api(m,p,b){
+  const r=await fetch('/ops/api'+p,{method:m,headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined});
+  const j=await r.json().catch(()=>({})); if(!r.ok)throw new Error(j.error||r.status); return j;
+}
+async function load(){
+  ORG=document.getElementById('orgId').value.trim(); if(!ORG)return alert('Paste org id');
+  const o=await api('GET','/orgs/'+ORG+'/overview');
+  document.getElementById('mode').textContent='FX mode: '+o.mode;
+  document.getElementById('ov').innerHTML='<p>Yachts: '+o.yachts.length+' | Crew: '+o.crewCount+' | Pending invites: '+o.pendingInvites.length+'</p>'
+    +o.yachts.map(y=>'<div>'+y.name+' ('+(y.flag||'-')+') — owner '+y.ownerCode+' <small>'+y.id+'</small></div>').join('');
+  document.getElementById('runs').innerHTML=o.runs.map(r=>'<div><span class="badge '+r.status+'">'+r.status+'</span> '
+    +r.periodStart+'→'+r.periodEnd+' <small>'+r.id+'</small> '
+    +'<button onclick="detail(\''+r.id+'\')">Open</button> '
+    +'<a href="/ops/api/payruns/'+r.id+'/recharge.csv">CSV</a></div>').join('')||'<i>No runs</i>';
+  document.getElementById('crew').innerHTML='<table><tr><th>Name</th><th>Rank</th><th>Home</th><th>Rate</th></tr>'
+    +o.crew.map(c=>'<tr><td>'+c.fullName+'</td><td>'+c.rank+'</td><td>'+c.homeCurrency+'</td><td>'+(c.dayRateMinor/100)+'</td></tr>').join('')+'</table>';
+}
+async function mkInvite(){
+  const j=await api('POST','/invites',{orgId:ORG,yachtId:val('invYacht')||null,contact:val('invContact')||null});
+  document.getElementById('invOut').innerHTML='Share: <code>/join?token='+j.token+'</code> (expires '+j.expiresAt+')';
+}
+async function mkRun(){
+  const j=await api('POST','/payruns',{orgId:ORG,yachtId:val('prYacht')||null,periodStart:val('prStart'),periodEnd:val('prEnd')});
+  document.getElementById('runOut').innerHTML='Created <code>'+j.id+'</code> — add lines via API, then: '
+    +'<button onclick="q(\''+j.id+'\')">Lock FX</button><button onclick="ex(\''+j.id+'\')">Execute</button>';
+  load();
+}
+async function q(id){await api('POST','/payruns/'+id+'/quotes');alert('FX locked');load();}
+async function ex(id){const r=await api('POST','/payruns/'+id+'/execute');alert('Executed '+r.executed.length+' ('+r.mode+')');load();}
+async function detail(id){const j=await api('GET','/payruns/'+id);alert(JSON.stringify(j.lines,null,1).slice(0,2000));}
+function val(id){return document.getElementById(id).value.trim();}
+</script></body></html>

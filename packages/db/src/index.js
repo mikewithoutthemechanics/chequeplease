@@ -11,5 +11,6 @@ export * from './repositories/audit-log.repository.js';
 export * from './repositories/device.repository.js';
 export * from './repositories/yacht-crew.repository.js';
 export * from './repositories/payrun.repository.js';
+export * from './repositories/invite.repository.js';
 
 

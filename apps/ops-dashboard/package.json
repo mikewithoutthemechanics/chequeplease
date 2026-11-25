@@ -1,0 +1,15 @@
+{
+  "name": "ops-dashboard",
+  "version": "0.1.0",
+  "description": "YachtCrew ops dashboard: login, yachts/crew/payruns, crew onboarding wizard",
+  "type": "module",
+  "main": "./src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test src/__tests__/**/*.test.js"
+  },
+  "dependencies": {
+    "@youpi/common": "*",
+    "@youpi/db": "*"
+  }
+}

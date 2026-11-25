@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>YachtCrew Ops — Login</title>
+<style>body{font-family:Arial,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.card{background:#1e293b;padding:32px;border-radius:12px;width:360px}input{width:100%;padding:10px;margin:8px 0;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#fff;box-sizing:border-box}
+button{width:100%;padding:10px;background:#2563eb;color:#fff;border:0;border-radius:6px;cursor:pointer}#e{color:#f87171;min-height:20px}</style></head>
+<body><div class="card">
+<h2>YachtCrew Ops Login</h2>
+<p>Use your <code>ADMIN_API_TOKEN</code>. Find it in <code>data/.secrets/admin_api_token</code> on the server.</p>
+<input id="t" type="password" placeholder="Admin token" autocomplete="current-password">
+<div id="e"></div>
+<button onclick="go()">Sign in</button>
+<script>
+async function go(){
+  const token=document.getElementById('t').value;
+  const r=await fetch('/ops/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});
+  if(r.ok){location.href='/dashboard';}else{document.getElementById('e').textContent='Bad token — check data/.secrets/admin_api_token';}
+}
+document.getElementById('t').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+</script></div></body></html>

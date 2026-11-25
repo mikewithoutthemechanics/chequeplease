@@ -1,5 +1,5 @@
-import { HttpServer } from '../../../payment-api/src/server.js';
-import { Database, runMigrations, MerchantRepository, YachtRepository, CrewRepository, PayRunRepository, PayLineRepository, PaymentSessionRepository, AuditLogRepository } from '@youpi/db';
+import { HttpServer } from './http.js';
+import { Database, runMigrations, MerchantRepository, YachtRepository, CrewRepository, PayRunRepository, PayLineRepository, PaymentSessionRepository, AuditLogRepository, InviteRepository } from '@youpi/db';
 import { PayrunService } from './payrun.service.js';
 import './payrun-quotes.js';
 import './payrun-execute.js';
@@ -16,6 +16,7 @@ export function createFxApp(customDb = null, opts = {}) {
   const payLineRepo = new PayLineRepository(db);
   const sessionRepo = new PaymentSessionRepository(db);
   const auditRepo = new AuditLogRepository(db);
+  const inviteRepo = new InviteRepository(db);
   const wise = opts.wise || new WiseClient();
   const svc = new PayrunService({ db, payRunRepo, payLineRepo, crewRepo, yachtRepo, merchantRepo, sessionRepo, auditRepo, wise, docsDir: opts.docsDir });
 
@@ -116,7 +117,52 @@ export function createFxApp(customDb = null, opts = {}) {
     } catch (e) { HttpServer.json(res, 400, { error: e.message }); }
   });
 
-  return { server, ctx: { db, merchantRepo, yachtRepo, crewRepo, payRunRepo, payLineRepo, svc, wise }, rawServer: server.createServer() };
+  server.post('/api/v1/invites', async (req, res) => {
+    try {
+      const b = await HttpServer.parseBody(req);
+      if (!b.orgId) return HttpServer.json(res, 400, { error: 'orgId required.' });
+      const inv = inviteRepo.create({ orgId: b.orgId, yachtId: b.yachtId || null, contact: b.contact || null });
+      if (auditRepo) auditRepo.log({ merchantId: b.orgId, entityType: 'INVITE', entityId: inv.id, action: 'INVITE_CREATED', actorType: 'ADMIN', details: {} });
+      HttpServer.json(res, 201, inv);
+    } catch (e) { HttpServer.json(res, 400, { error: e.message }); }
+  });
+
+  server.get('/api/v1/invites/validate', async (req, res) => {
+    const url = new URL(req.url, 'http://localhost');
+    const inv = inviteRepo.findByToken(url.searchParams.get('token') || '');
+    if (!inv || inv.status !== 'PENDING') return HttpServer.json(res, 404, { error: 'Invalid or used invite.' });
+    if (new Date(inv.expiresAt).getTime() < Date.now()) return HttpServer.json(res, 410, { error: 'Invite expired.' });
+    HttpServer.json(res, 200, { id: inv.id, orgId: inv.orgId, yachtId: inv.yachtId, expiresAt: inv.expiresAt });
+  });
+
+  server.post('/api/v1/invites/accept', async (req, res) => {
+    try {
+      const b = await HttpServer.parseBody(req);
+      const inv = inviteRepo.findByToken(b.token || '');
+      if (!inv || inv.status !== 'PENDING') return HttpServer.json(res, 404, { error: 'Invalid or used invite.' });
+      if (new Date(inv.expiresAt).getTime() < Date.now()) return HttpServer.json(res, 410, { error: 'Invite expired.' });
+      if (!b.fullName || !b.rank || !b.homeCurrency || !b.bankCountry || !b.ibanOrAccount || !b.dayRateMinor) {
+        return HttpServer.json(res, 400, { error: 'fullName, rank, homeCurrency, bankCountry, ibanOrAccount, dayRateMinor required.' });
+      }
+      const crew = crewRepo.create({ orgId: inv.orgId, yachtId: inv.yachtId || b.yachtId || null,
+        fullName: b.fullName, rank: b.rank, nationality: b.nationality || null,
+        homeCurrency: b.homeCurrency, bankCountry: b.bankCountry, ibanOrAccount: b.ibanOrAccount,
+        dayRateMinor: b.dayRateMinor, dayRateCurrency: b.dayRateCurrency || 'EUR', phone: b.phone || inv.contact || null });
+      inviteRepo.accept(inv.id);
+      if (auditRepo) auditRepo.log({ merchantId: inv.orgId, entityType: 'CREW', entityId: crew.id, action: 'CREW_ONBOARDED', actorType: 'SYSTEM', details: { inviteId: inv.id } });
+      HttpServer.json(res, 201, { crew });
+    } catch (e) { HttpServer.json(res, 400, { error: e.message }); }
+  });
+
+  server.get('/api/v1/orgs/:orgId/overview', async (req, res, p) => {
+    const yachts = yachtRepo.findByOrg(p.orgId);
+    const crew = crewRepo.findByOrg(p.orgId);
+    const runs = payRunRepo.findByOrg(p.orgId, 10);
+    const pendingInvites = inviteRepo.listPending(p.orgId).map(i => ({ id: i.id, yachtId: i.yachtId, contact: i.contact, expiresAt: i.expiresAt }));
+    HttpServer.json(res, 200, { yachts, crewCount: crew.length, crew: crew.slice(0, 50), runs, pendingInvites, mode: wise.mode });
+  });
+
+  return { server, ctx: { db, merchantRepo, yachtRepo, crewRepo, payRunRepo, payLineRepo, inviteRepo, svc, wise }, rawServer: server.createServer() };
 }
 
 export function startServer(port = null, customDb = null) {

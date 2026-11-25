@@ -120,6 +120,10 @@ export function runMigrations(targetDb) {
     const ycSql = fs.readFileSync(ycPath, 'utf8');
     db.exec(ycSql);
   } catch (err) { console.error('[migrate] yachtcrew schema failed:', err.message); }
+  try {
+    const invPath = path.join(__dirname, 'yachtcrew-invites.sql');
+    db.exec(fs.readFileSync(invPath, 'utf8'));
+  } catch (err) { console.error('[migrate] invites schema failed:', err.message); }
   try { db.exec("ALTER TABLE payment_sessions ADD COLUMN source_amount_minor INTEGER;"); } catch {}
   try { db.exec("ALTER TABLE payment_sessions ADD COLUMN source_currency TEXT DEFAULT 'EUR';"); } catch {}
   try { db.exec("ALTER TABLE payment_sessions ADD COLUMN fx_quote_id TEXT;"); } catch {}
